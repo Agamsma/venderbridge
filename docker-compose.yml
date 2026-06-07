@@ -1,0 +1,48 @@
+# VendorBridge — one-command stack (API + MySQL).
+#   1. cp .env.example .env   and set JWT_SECRET (>= 24 chars) + ADMIN_* + DB_PASSWORD
+#   2. docker compose up --build
+#   3. open http://localhost:4000
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-vendorbridge_root}
+      MYSQL_DATABASE: ${DB_NAME:-vendorbridge}
+    volumes:
+      - vb_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_PASSWORD:-vendorbridge_root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD:-vendorbridge_root}
+      DB_NAME: ${DB_NAME:-vendorbridge}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in your .env (must be >= 24 chars)}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      ADMIN_NAME: ${ADMIN_NAME:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    ports:
+      - "${PORT:-4000}:4000"
+    # Build the schema (idempotent), seed the admin if ADMIN_EMAIL is set, then start.
+    command: >
+      sh -c "node scripts/initDb.js &&
+             if [ -n \"$$ADMIN_EMAIL\" ]; then node scripts/createAdmin.js; fi &&
+             node server/index.js"
+
+volumes:
+  vb_db:
